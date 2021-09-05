@@ -1,0 +1,12 @@
+[package]
+authors = ["Luca Barbato <lu_zero@gentoo.org>"]
+name = "kobject-uevent"
+version = "0.1.0"
+edition = "2018"
+description = "Netlink kobject uevent packets parser"
+
+[dependencies]
+anyhow = "1.0"
+
+[dev-dependencies]
+netlink-sys = "0.7"
