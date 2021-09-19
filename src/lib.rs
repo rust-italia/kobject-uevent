@@ -45,8 +45,8 @@ pub struct UEvent {
     pub devpath: PathBuf,
     /// SubSystem originating the event
     pub subsystem: String,
-    /// Additional arguments
-    pub ext: HashMap<String, String>,
+    /// Arguments
+    pub env: HashMap<String, String>,
     /// Sequence number
     pub seq: u64,
 }
@@ -57,7 +57,7 @@ impl UEvent {
         let mut action = None;
         let mut devpath = None;
         let mut subsystem = None;
-        let mut ext = HashMap::new();
+        let mut env = HashMap::new();
         let mut seq = None;
 
         for f in from_utf8(pkt)?.split('\0') {
@@ -67,10 +67,9 @@ impl UEvent {
                     "DEVPATH" => devpath = Some(value.parse::<PathBuf>()?),
                     "SUBSYSTEM" => subsystem = Some(value.to_string()),
                     "SEQNUM" => seq = Some(value.parse::<u64>()?),
-                    _ => {
-                        let _ = ext.insert(key.into(), value.into());
-                    }
+                    _ => {}
                 }
+                let _ = env.insert(key.into(), value.into());
             }
         }
 
@@ -83,7 +82,7 @@ impl UEvent {
             action,
             devpath,
             subsystem,
-            ext,
+            env,
             seq,
         })
     }
