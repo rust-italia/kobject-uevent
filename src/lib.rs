@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::{path::PathBuf, str::from_utf8};
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 /// KObject action types
 ///
 /// See kobject_action in include/linux/kobject.h
@@ -37,7 +37,7 @@ impl FromStr for ActionType {
 }
 
 /// Linux kernel userspace event
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UEvent {
     /// Action happening
     pub action: ActionType,
