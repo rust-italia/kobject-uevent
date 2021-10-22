@@ -51,27 +51,61 @@ pub struct UEvent {
     pub seq: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MaybeUEvent {
+    /// Action happening
+    pub action: Option<ActionType>,
+    /// Complete Kernel Object path
+    pub devpath: Option<PathBuf>,
+    /// SubSystem originating the event
+    pub subsystem: Option<String>,
+    /// Arguments
+    pub env: HashMap<String, String>,
+    /// Sequence number
+    pub seq: Option<u64>,
+}
+
+/// Parse key=value strings as UEvent, some fields may be missing
+fn parse_uevent_iter<'a>(iter: impl Iterator<Item = &'a str>) -> anyhow::Result<MaybeUEvent> {
+    let mut action = None;
+    let mut devpath = None;
+    let mut subsystem = None;
+    let mut env = HashMap::new();
+    let mut seq = None;
+
+    for f in iter {
+        if let Some((key, value)) = f.split_once('=') {
+            match key {
+                "ACTION" => action = Some(value.parse::<ActionType>()?),
+                "DEVPATH" => devpath = Some(value.parse::<PathBuf>()?),
+                "SUBSYSTEM" => subsystem = Some(value.to_string()),
+                "SEQNUM" => seq = Some(value.parse::<u64>()?),
+                _ => {}
+            }
+            let _ = env.insert(key.into(), value.into());
+        }
+    }
+
+    Ok(MaybeUEvent {
+        action,
+        devpath,
+        subsystem,
+        env,
+        seq,
+    })
+}
+
 impl UEvent {
     /// Parse a netlink packet as received from the NETLINK_KOBJECT_UEVENT broadcast
     pub fn from_netlink_packet(pkt: &[u8]) -> anyhow::Result<UEvent> {
-        let mut action = None;
-        let mut devpath = None;
-        let mut subsystem = None;
-        let mut env = HashMap::new();
-        let mut seq = None;
-
-        for f in from_utf8(pkt)?.split('\0') {
-            if let Some((key, value)) = f.split_once('=') {
-                match key {
-                    "ACTION" => action = Some(value.parse::<ActionType>()?),
-                    "DEVPATH" => devpath = Some(value.parse::<PathBuf>()?),
-                    "SUBSYSTEM" => subsystem = Some(value.to_string()),
-                    "SEQNUM" => seq = Some(value.parse::<u64>()?),
-                    _ => {}
-                }
-                let _ = env.insert(key.into(), value.into());
-            }
-        }
+        let lines = from_utf8(pkt)?.split('\0');
+        let MaybeUEvent {
+            action,
+            devpath,
+            subsystem,
+            env,
+            seq,
+        } = parse_uevent_iter(lines)?;
 
         let action = action.ok_or_else(|| anyhow!("action not found"))?;
         let devpath = devpath.ok_or_else(|| anyhow!("devpath not found"))?;
