@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use std::collections::HashMap;
+use std::path::Path;
 use std::str::FromStr;
 use std::{path::PathBuf, str::from_utf8};
 
@@ -96,6 +97,37 @@ fn parse_uevent_iter<'a>(iter: impl Iterator<Item = &'a str>) -> anyhow::Result<
 }
 
 impl UEvent {
+    /// Parse a sysfs path as an Add UEvent
+    pub fn from_sysfs_path(
+        path: impl AsRef<Path>,
+        mountpoint: impl AsRef<Path>,
+    ) -> anyhow::Result<UEvent> {
+        let path = path.as_ref();
+        let uevent = std::fs::read_to_string(path.join("uevent"))?;
+        let subsystem_path = std::fs::read_link(path.join("subsystem"))?;
+        let lines = uevent.lines();
+
+        let MaybeUEvent { env, .. } = parse_uevent_iter(lines)?;
+
+        let action = ActionType::Add;
+        // make it look like a netlink devpath
+        let devpath = Path::new("/").join(path.canonicalize()?.strip_prefix(mountpoint)?);
+        let subsystem = subsystem_path
+            .file_name()
+            .ok_or_else(|| anyhow!("subsystem not found"))?
+            .to_string_lossy()
+            .to_string();
+        let seq = 0;
+
+        Ok(UEvent {
+            action,
+            devpath,
+            subsystem,
+            env,
+            seq,
+        })
+    }
+
     /// Parse a netlink packet as received from the NETLINK_KOBJECT_UEVENT broadcast
     pub fn from_netlink_packet(pkt: &[u8]) -> anyhow::Result<UEvent> {
         let lines = from_utf8(pkt)?.split('\0');
@@ -447,4 +479,11 @@ mod tests {
                               SUBSYSTEM=tty";
         assert!(UEvent::from_netlink_packet(DATA).is_err());
     }
+
+    /*
+    #[test]
+    fn sysfs_null_device() {
+        let path = Path::new("/sys/dev/char/1:3");
+        println!("{:#?}", UEvent::from_sysfs_path(path, "/sys"));
+    } */
 }
