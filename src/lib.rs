@@ -479,11 +479,4 @@ mod tests {
                               SUBSYSTEM=tty";
         assert!(UEvent::from_netlink_packet(DATA).is_err());
     }
-
-    /*
-    #[test]
-    fn sysfs_null_device() {
-        let path = Path::new("/sys/dev/char/1:3");
-        println!("{:#?}", UEvent::from_sysfs_path(path, "/sys"));
-    } */
 }
