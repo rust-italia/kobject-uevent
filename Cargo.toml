@@ -12,4 +12,4 @@ readme = "README.md"
 anyhow = "1.0"
 
 [dev-dependencies]
-netlink-sys = "0.7"
+netlink-sys = "0.8.3"
