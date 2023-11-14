@@ -1,3 +1,8 @@
+//! [netlink](https://www.man7.org/linux/man-pages/man7/netlink.7.html) `NETLINK_KOBJECT_UEVENT` packet parser
+//!
+//! The [uevents](https://www.kernel.org/doc/html/latest/core-api/kobject.html#uevents) are
+//! triggered by `kobject_uevent` and `kobject_uevent_env` to signal a change in the referred kobject.
+
 use anyhow::anyhow;
 use std::collections::HashMap;
 use std::path::Path;
@@ -9,13 +14,25 @@ use std::{path::PathBuf, str::from_utf8};
 ///
 /// See kobject_action in include/linux/kobject.h
 pub enum ActionType {
+    /// A new kobject is added
     Add,
+    /// A kobject is removed
     Remove,
+    /// the kobject changed its internal state
+    ///
+    /// the `env` contains kobject-specific information.
     Change,
+    /// the kobject is reparented as a result of `kobject_move`
+    ///
+    /// the `env` contains `DEVPATH_OLD=<oldpath>`.
     Move,
+    /// The device is back online after successful `device_offline`.
     Online,
+    /// The device is ready to be hot-removed.
     Offline,
+    /// The device is bound to a driver.
     Bind,
+    /// The device is not bound to its driver anymore.
     Unbind,
 }
 
