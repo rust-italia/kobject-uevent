@@ -23,12 +23,10 @@ use kobject_uevent::UEvent;
 fn main() {
     let mut socket = Socket::new(NETLINK_KOBJECT_UEVENT).unwrap();
     let sa = SocketAddr::new(process::id(), 1);
-    let mut buf = vec![0u8; 1024 * 8];
 
     socket.bind(&sa).unwrap();
 
-    loop {
-        let n = socket.recv(&mut buf, 0).unwrap();
+    while let Ok((buf, _addr)) = socket.recv_from_full() {
         let s = std::str::from_utf8(&buf).unwrap();
         let u = UEvent::from_netlink_packet(&buf).unwrap();
         println!(">> {}", s);
