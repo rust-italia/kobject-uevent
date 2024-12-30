@@ -3,11 +3,36 @@
 //! The [uevents](https://www.kernel.org/doc/html/latest/core-api/kobject.html#uevents) are
 //! triggered by `kobject_uevent` and `kobject_uevent_env` to signal a change in the referred kobject.
 
-use anyhow::anyhow;
-use std::collections::HashMap;
-use std::path::Path;
-use std::str::FromStr;
-use std::{path::PathBuf, str::from_utf8};
+use std::{
+    collections::HashMap,
+    io,
+    path::{Path, PathBuf},
+    str::{from_utf8, FromStr},
+};
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("Unexpected action: {0}")]
+    UnexpectedAction(String),
+    #[error("Invalid DEVPATH: {0}")]
+    InvalidDevPath(String),
+    #[error("Unexpected SEQNUM: {0}")]
+    InvalidSeqNum(String),
+    #[error(transparent)]
+    Io(#[from] io::Error),
+    #[error("Path not inside mountpoint")]
+    NotInsideMountpoint,
+    #[error("Packet not UTF-8")]
+    NotUtf8,
+    #[error("action not found")]
+    ActionNotFound,
+    #[error("devpath not found")]
+    DevPathNotFound,
+    #[error("subsystem not found")]
+    SubsystemNotFound,
+    #[error("seq missing")]
+    SeqMissing,
+}
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 /// KObject action types
@@ -37,7 +62,7 @@ pub enum ActionType {
 }
 
 impl FromStr for ActionType {
-    type Err = anyhow::Error;
+    type Err = Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         use ActionType::*;
         match s {
@@ -49,7 +74,7 @@ impl FromStr for ActionType {
             "offline" => Ok(Offline),
             "bind" => Ok(Bind),
             "unbind" => Ok(Unbind),
-            _ => anyhow::bail!("Unexpected action: {}", s),
+            _ => Err(Error::UnexpectedAction(s.to_owned())),
         }
     }
 }
@@ -84,7 +109,7 @@ struct MaybeUEvent {
 }
 
 /// Parse key=value strings as UEvent, some fields may be missing
-fn parse_uevent_iter<'a>(iter: impl Iterator<Item = &'a str>) -> anyhow::Result<MaybeUEvent> {
+fn parse_uevent_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<MaybeUEvent, Error> {
     let mut action = None;
     let mut devpath = None;
     let mut subsystem = None;
@@ -95,9 +120,21 @@ fn parse_uevent_iter<'a>(iter: impl Iterator<Item = &'a str>) -> anyhow::Result<
         if let Some((key, value)) = f.split_once('=') {
             match key {
                 "ACTION" => action = Some(value.parse::<ActionType>()?),
-                "DEVPATH" => devpath = Some(value.parse::<PathBuf>()?),
+                "DEVPATH" => {
+                    devpath = Some(
+                        value
+                            .parse::<PathBuf>()
+                            .map_err(|_| Error::InvalidDevPath(value.to_owned()))?,
+                    )
+                }
                 "SUBSYSTEM" => subsystem = Some(value.to_string()),
-                "SEQNUM" => seq = Some(value.parse::<u64>()?),
+                "SEQNUM" => {
+                    seq = Some(
+                        value
+                            .parse::<u64>()
+                            .map_err(|_| Error::InvalidSeqNum(value.to_owned()))?,
+                    )
+                }
                 _ => {}
             }
             let _ = env.insert(key.into(), value.into());
@@ -118,7 +155,7 @@ impl UEvent {
     pub fn from_sysfs_path(
         path: impl AsRef<Path>,
         mountpoint: impl AsRef<Path>,
-    ) -> anyhow::Result<UEvent> {
+    ) -> Result<UEvent, Error> {
         let path = path.as_ref();
         let uevent = std::fs::read_to_string(path.join("uevent"))?;
         let subsystem_path = std::fs::read_link(path.join("subsystem"))?;
@@ -128,10 +165,14 @@ impl UEvent {
 
         let action = ActionType::Add;
         // make it look like a netlink devpath
-        let devpath = Path::new("/").join(path.canonicalize()?.strip_prefix(mountpoint)?);
+        let devpath = Path::new("/").join(
+            path.canonicalize()?
+                .strip_prefix(mountpoint)
+                .map_err(|_| Error::NotInsideMountpoint)?,
+        );
         let subsystem = subsystem_path
             .file_name()
-            .ok_or_else(|| anyhow!("subsystem not found"))?
+            .ok_or(Error::SubsystemNotFound)?
             .to_string_lossy()
             .to_string();
         let seq = 0;
@@ -146,8 +187,8 @@ impl UEvent {
     }
 
     /// Parse a netlink packet as received from the NETLINK_KOBJECT_UEVENT broadcast
-    pub fn from_netlink_packet(pkt: &[u8]) -> anyhow::Result<UEvent> {
-        let lines = from_utf8(pkt)?.split('\0');
+    pub fn from_netlink_packet(pkt: &[u8]) -> Result<UEvent, Error> {
+        let lines = from_utf8(pkt).map_err(|_| Error::NotUtf8)?.split('\0');
         let MaybeUEvent {
             action,
             devpath,
@@ -156,10 +197,10 @@ impl UEvent {
             seq,
         } = parse_uevent_iter(lines)?;
 
-        let action = action.ok_or_else(|| anyhow!("action not found"))?;
-        let devpath = devpath.ok_or_else(|| anyhow!("devpath not found"))?;
-        let subsystem = subsystem.ok_or_else(|| anyhow!("subsystem not found"))?;
-        let seq = seq.ok_or_else(|| anyhow!("seq missing"))?;
+        let action = action.ok_or(Error::ActionNotFound)?;
+        let devpath = devpath.ok_or(Error::DevPathNotFound)?;
+        let subsystem = subsystem.ok_or(Error::SubsystemNotFound)?;
+        let seq = seq.ok_or(Error::SeqMissing)?;
 
         Ok(UEvent {
             action,
